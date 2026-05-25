@@ -1,0 +1,61 @@
+services:
+
+  # Service: banco de dados 
+  db:
+    # Usa a imagem oficial do PostgreSQL versão 16, baixada do Docker Hub.
+    # Não precisamos de Dockerfile aqui — a imagem já vem pronta.
+    image: postgres:16
+
+    # Variáveis de ambiente lidas do arquivo .env (na raiz do projeto).
+    # O Postgres usa essas variáveis para criar o banco e o usuário na primeira vez que sobe.
+    environment:
+      POSTGRES_DB: ${DB_NAME}           # nome do banco de dados
+      POSTGRES_USER: ${DB_USER}         # usuário do banco
+      POSTGRES_PASSWORD: ${DB_PASSWORD} # senha do usuário
+
+    # Volume nomeado: os dados do banco ficam salvos fora do container.
+    # Sem isso, todos os dados seriam perdidos toda vez que o container fosse removido.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    # Verifica se o Postgres está realmente pronto para aceitar conexões.
+    # O "web" só vai subir depois que essa verificação passar (veja depends_on abaixo).
+    healthcheck:
+      # pg_isready é um utilitário do próprio Postgres que testa se ele está aceitando conexões.
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s  # testa a cada 5 segundos
+      timeout: 5s   # aguarda até 5 segundos por resposta
+      retries: 5    # tenta 5 vezes antes de considerar falha
+
+  # Service: aplicação Django 
+  web:
+    # Constrói a imagem do Django usando o Dockerfile que está na pasta backend/.
+    build: ./backend
+
+    # Monta a pasta local backend/ dentro do container em /app.
+    # Isso permite editar o código na sua máquina e ver as mudanças sem rebuild.
+    volumes:
+      - ./backend:/app
+
+    # Mapeia a porta 8000 do container para a porta 8000 da sua máquina.
+    # Formato: "porta_local:porta_container"
+    # Acesso em: http://localhost:8000
+    ports:
+      - "8000:8000"
+
+    # Carrega todas as variáveis do arquivo .env e injeta no container.
+    # É assim que o Django acessa DB_NAME, DB_USER, SECRET_KEY etc.
+    env_file:
+      - .env
+
+    # Garante que o container "web" só sobe DEPOIS que o "db" passar no healthcheck.
+    # Sem isso, o Django tentaria conectar no banco antes dele estar pronto.
+    depends_on:
+      db:
+        condition: service_healthy
+
+# Volumes nomeados 
+# Declara os volumes usados acima. O Docker gerencia onde esses dados ficam no disco.
+# "postgres_data" persiste os dados do banco entre reinicializações dos containers.
+volumes:
+  postgres_data:
